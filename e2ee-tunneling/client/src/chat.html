@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E2EE Chat</title>
+<style>
+  /* ── Reset & base ───────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0f1117;
+    --surface:  #1a1d27;
+    --border:   #2a2d3e;
+    --accent:   #6c63ff;
+    --accent2:  #43e97b;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --danger:   #ef4444;
+    --me-bg:    #2d2060;
+    --them-bg:  #1e2535;
+    --radius:   12px;
+    --mono:     'Courier New', monospace;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ─────────────────────────────────── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  header h1 { font-size: 16px; font-weight: 600; flex: 1; }
+
+  .badge {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 99px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .badge-e2ee  { background: #1a3a2a; color: var(--accent2); border: 1px solid #2a5a3a; }
+  .badge-blind { background: #1a1a3a; color: #a78bfa; border: 1px solid #2a2a5a; }
+
+  #status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+  #status-dot.online  { background: var(--accent2); }
+  #status-dot.error   { background: var(--danger); }
+
+  /* ── Layout ─────────────────────────────────── */
+  .layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 200px 1fr 260px;
+    min-height: 0;
+  }
+
+  /* ── Sidebar ─────────────────────────────────── */
+  aside {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 16px 12px;
+    gap: 8px;
+    overflow-y: auto;
+  }
+
+  aside h2 { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: 1px; margin-bottom: 4px; }
+
+  .user-item {
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.15s;
+    border: 1px solid transparent;
+  }
+  .user-item:hover    { background: #252840; }
+  .user-item.selected { background: #252840; border-color: var(--accent); }
+  .user-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent2); flex-shrink: 0; }
+
+  /* ── Chat area ───────────────────────────────── */
+  main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .chat-header {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    color: var(--muted);
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .chat-header strong { color: var(--text); }
+
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .msg {
+    max-width: 70%;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .msg.me {
+    align-self: flex-end;
+    background: var(--me-bg);
+    border-bottom-right-radius: 3px;
+  }
+  .msg.them {
+    align-self: flex-start;
+    background: var(--them-bg);
+    border-bottom-left-radius: 3px;
+  }
+  .msg .sender { font-size: 11px; color: var(--muted); margin-bottom: 3px; font-weight: 600; }
+  .msg.me .sender { color: #a78bfa; }
+
+  .msg-system {
+    align-self: center;
+    font-size: 11px;
+    color: var(--muted);
+    background: #1a1d27;
+    padding: 4px 12px;
+    border-radius: 99px;
+    border: 1px solid var(--border);
+  }
+
+  .input-row {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+  }
+
+  #msg-input {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  #msg-input:focus { border-color: var(--accent); }
+  #msg-input:disabled { opacity: 0.4; }
+
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  button:hover:not(:disabled) { opacity: 0.85; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Info panel ──────────────────────────────── */
+  .info-panel {
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow-y: auto;
+    font-size: 12px;
+  }
+  .info-panel h2 { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: 1px; }
+
+  .key-box {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent2);
+    word-break: break-all;
+    line-height: 1.6;
+  }
+  .key-box .label { color: var(--muted); font-size: 10px; margin-bottom: 4px; }
+
+  .log-box {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: #64748b;
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.7;
+  }
+  .log-box .log-send    { color: #6c63ff; }
+  .log-box .log-recv    { color: #43e97b; }
+  .log-box .log-crypto  { color: #f59e0b; }
+  .log-box .log-error   { color: var(--danger); }
+
+  /* ── Login overlay ───────────────────────────── */
+  #login-overlay {
+    position: fixed; inset: 0;
+    background: rgba(10,10,20,0.92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(4px);
+  }
+
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    width: 340px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .login-card h2 { font-size: 20px; font-weight: 700; }
+  .login-card p  { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+  .login-card input {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.2s;
+  }
+  .login-card input:focus { border-color: var(--accent); }
+
+  .login-card .hint {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Login overlay ─────────────────────────────────── -->
+<div id="login-overlay">
+  <div class="login-card">
+    <h2>🔐 E2EE Chat</h2>
+    <p>Suas chaves RSA são geradas <strong>localmente</strong>. A chave privada nunca sai do browser.</p>
+    <input id="login-username" type="text" placeholder="Seu username (ex: Alice)" autocomplete="off">
+    <button id="login-btn">Conectar e Gerar Chaves</button>
+    <span class="hint">servidor: ws://localhost:9001</span>
+  </div>
+</div>
+
+<!-- ── App ───────────────────────────────────────────── -->
+<header>
+  <div id="status-dot"></div>
+  <h1 id="header-title">E2EE Chat</h1>
+  <span class="badge badge-e2ee">E2EE</span>
+  <span class="badge badge-blind">Servidor Cego</span>
+</header>
+
+<div class="layout">
+  <!-- Sidebar: usuários online -->
+  <aside>
+    <h2>Online</h2>
+    <div id="user-list"></div>
+  </aside>
+
+  <!-- Chat principal -->
+  <main>
+    <div class="chat-header" id="chat-header">
+      Selecione um usuário para conversar
+    </div>
+    <div id="messages"></div>
+    <div class="input-row">
+      <input id="msg-input" type="text" placeholder="Mensagem cifrada E2EE..." disabled>
+      <button id="send-btn" disabled>Enviar</button>
+    </div>
+  </main>
+
+  <!-- Painel de debug / chaves -->
+  <div class="info-panel">
+    <div>
+      <h2>Sua Chave Pública RSA</h2>
+      <div class="key-box" id="pubkey-display">
+        <div class="label">aguardando geração...</div>
+      </div>
+    </div>
+    <div>
+      <h2>Chave Pública do Par</h2>
+      <div class="key-box" id="peerkey-display">
+        <div class="label">selecione um usuário</div>
+      </div>
+    </div>
+    <div>
+      <h2>Log Criptográfico</h2>
+      <div class="log-box" id="crypto-log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================================================================
+// CAMADA 1: RSA — porta direta do seu Rust
+// Mantém a mesma lógica: mod_pow, gcd, mod_inverse, gerar_chaves
+// Usa BigInt para suportar n > 2^53
+// ================================================================
+
+const RSA = (() => {
+  function modPow(base, exp, mod) {
+    // Exatamente a mesma lógica do seu mod_pow em Rust
+    // mas com BigInt para evitar overflow em JS
+    base = BigInt(base); exp = BigInt(exp); mod = BigInt(mod);
+    let result = 1n;
+    base = base % mod;
+    while (exp > 0n) {
+      if (exp % 2n === 1n) result = result * base % mod;
+      exp /= 2n;
+      base = base * base % mod;
+    }
+    return result;
+  }
+
+  function gcd(a, b) {
+    a = BigInt(a); b = BigInt(b);
+    while (b !== 0n) { [a, b] = [b, a % b]; }
+    return a;
+  }
+
+  function modInverse(e, phi) {
+    // Algoritmo Euclidiano Estendido — igual ao seu mod_inverse em Rust
+    let [oldR, r] = [BigInt(phi), BigInt(e)];
+    let [oldS, s] = [0n, 1n];
+    while (r !== 0n) {
+      const q = oldR / r;
+      [oldR, r] = [r, oldR - q * r];
+      [oldS, s] = [s, oldS - q * s];
+    }
+    return oldS < 0n ? oldS + BigInt(phi) : oldS;
+  }
+
+  function gerarChaves(p, q, e) {
+    // Mesmo contrato do seu gerar_chaves(p, q, e) -> (PublicKey, PrivateKey)
+    const n   = BigInt(p) * BigInt(q);
+    const phi = (BigInt(p) - 1n) * (BigInt(q) - 1n);
+    if (gcd(e, phi) !== 1n) throw new Error("e precisa ser coprimo de phi(n)!");
+    const d = modInverse(e, phi);
+    return {
+      publicKey:  { n, e: BigInt(e) },
+      privateKey: { n, d }
+    };
+  }
+
+  // Cifra UM byte (u8) com a chave pública — igual ao cifrar() do Rust
+  function cifrarByte(byte, pubKey) {
+    return modPow(byte, pubKey.e, pubKey.n);
+  }
+
+  // Decifra UM valor cifrado — igual ao decifrar() do Rust
+  function decifrarByte(c, privKey) {
+    return Number(modPow(c, privKey.d, privKey.n));
+  }
+
+  // Cifra Uint8Array → Array de BigInt (um por byte)
+  function cifrarBytes(bytes, pubKey) {
+    return Array.from(bytes).map(b => cifrarByte(b, pubKey));
+  }
+
+  // Decifra Array de BigInt → Uint8Array
+  function decifrarBytes(cifrados, privKey) {
+    return new Uint8Array(cifrados.map(c => decifrarByte(c, privKey)));
+  }
+
+  // Serializa chave pública para JSON (converte BigInt → string)
+  function pubKeyToDto(pubKey) {
+    return { n: pubKey.n.toString(), e: pubKey.e.toString() };
+  }
+
+  function pubKeyFromDto(dto) {
+    return { n: BigInt(dto.n), e: BigInt(dto.e) };
+  }
+
+  return { gerarChaves, cifrarBytes, decifrarBytes, pubKeyToDto, pubKeyFromDto };
+})();
+
+// ================================================================
+// CAMADA 2: AES-CBC + HMAC-SHA256
+// Usa a Web Crypto API do browser — mesma matemática do seu aes.rs
+// mas sem precisar reimplementar tudo em JS
+//
+// Por que Web Crypto aqui e RSA manual acima?
+// → RSA é do projeto, precisa ser compatível com o Rust
+// → AES/HMAC são primitivas do sistema operacional, não do projeto
+// ================================================================
+
+const CRYPTO = (() => {
+  // Gera 32 bytes aleatórios (chave de sessão AES-256)
+  function gerarChaveAes() {
+    return crypto.getRandomValues(new Uint8Array(32));
+  }
+
+  // AES-256-CBC encrypt — mesmo modo do seu aes_encrypt_cbc
+  // Retorna: IV(16 bytes) + ciphertext (igual ao formato do seu Rust)
+  async function aesEncrypt(plaintext, keyBytes) {
+    const key = await crypto.subtle.importKey(
+      "raw", keyBytes, { name: "AES-CBC" }, false, ["encrypt"]
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(16));
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: "AES-CBC", iv }, key, plaintext
+    );
+    // Concatena IV + ciphertext — igual ao resultado_final do seu Rust
+    const result = new Uint8Array(16 + ciphertext.byteLength);
+    result.set(iv, 0);
+    result.set(new Uint8Array(ciphertext), 16);
+    return result;
+  }
+
+  // AES-256-CBC decrypt — mesmo modo do seu aes_decrypt_cbc
+  // Espera: IV(16 bytes) + ciphertext (formato do seu Rust)
+  async function aesDecrypt(ivAndCiphertext, keyBytes) {
+    const key = await crypto.subtle.importKey(
+      "raw", keyBytes, { name: "AES-CBC" }, false, ["decrypt"]
+    );
+    const iv         = ivAndCiphertext.slice(0, 16);
+    const ciphertext = ivAndCiphertext.slice(16);
+    const plaintext  = await crypto.subtle.decrypt(
+      { name: "AES-CBC", iv }, key, ciphertext
+    );
+    return new Uint8Array(plaintext);
+  }
+
+  // HMAC-SHA256 — Encrypt-then-MAC: autentica o IV+ciphertext
+  // Usa a mesma chave AES de sessão para o MAC
+  async function hmacSign(data, keyBytes) {
+    const key = await crypto.subtle.importKey(
+      "raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+    );
+    const sig = await crypto.subtle.sign("HMAC", key, data);
+    return new Uint8Array(sig);
+  }
+
+  async function hmacVerify(data, mac, keyBytes) {
+    const key = await crypto.subtle.importKey(
+      "raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
+    );
+    return crypto.subtle.verify("HMAC", key, mac, data);
+  }
+
+  return { gerarChaveAes, aesEncrypt, aesDecrypt, hmacSign, hmacVerify };
+})();
+
+// ================================================================
+// CAMADA 3: Utilidades de encoding
+// ================================================================
+
+const Hex = {
+  encode: (bytes) => Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(''),
+  decode: (hex)   => new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16))),
+};
+
+const Encoder = new TextEncoder();
+const Decoder = new TextDecoder();
+
+// ================================================================
+// CAMADA 4: Estado da aplicação e WebSocket
+// ================================================================
+
+let ws       = null;
+let myKeys   = null;  // { publicKey, privateKey }
+let myName   = null;
+let peerName = null;
+let peerKey  = null;  // chave pública RSA do peer atual
+
+// Gerada no handshake, reusada na sessão com cada peer
+// Na prática seria uma chave por conversa — para o projeto, uma por sessão está OK
+const sessionKeys = new Map(); // username → Uint8Array(32) chave AES
+
+function log(cls, msg) {
+  const box = document.getElementById('crypto-log');
+  const div = document.createElement('div');
+  div.className = cls;
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function addMsg(from, text, isMe) {
+  const container = document.getElementById('messages');
+  const isSystem  = from === null;
+
+  if (isSystem) {
+    const div = document.createElement('div');
+    div.className   = 'msg-system';
+    div.textContent = text;
+    container.appendChild(div);
+  } else {
+    const div    = document.createElement('div');
+    div.className = `msg ${isMe ? 'me' : 'them'}`;
+    div.innerHTML = `<div class="sender">${from}</div>${escapeHtml(text)}`;
+    container.appendChild(div);
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ================================================================
+// CAMADA 5: Protocolo WebSocket
+// ================================================================
+
+function conectar(username) {
+  // Passo 1: gera par de chaves RSA localmente
+  // Usando os mesmos primos do seu projeto (257, 263, e=17)
+  // Para produção: use primos muito maiores — aqui é para compatibilidade com o Rust
+  myKeys = RSA.gerarChaves(257, 263, 17);
+  myName = username;
+
+  log('log-crypto', `Par RSA gerado — n=${myKeys.publicKey.n}, e=${myKeys.publicKey.e}`);
+
+  const pubKeyDto = RSA.pubKeyToDto(myKeys.publicKey);
+  document.getElementById('pubkey-display').innerHTML =
+    `<div class="label">n (módulo)</div>${pubKeyDto.n}<br>
+     <div class="label" style="margin-top:6px">e (expoente)</div>${pubKeyDto.e}`;
+
+  ws = new WebSocket('ws://localhost:9001');
+
+  ws.onopen = () => {
+    document.getElementById('status-dot').className = 'online';
+    document.getElementById('header-title').textContent = `E2EE Chat — ${username}`;
+    log('log-send', 'WS conectado, registrando...');
+
+    // Passo 2: registra no servidor enviando só a chave PÚBLICA
+    ws.send(JSON.stringify({
+      type: 'register',
+      username,
+      public_key: pubKeyDto,
+    }));
+  };
+
+  ws.onmessage = async (event) => {
+    const msg = JSON.parse(event.data);
+    await handleServerMsg(msg);
+  };
+
+  ws.onerror = () => {
+    document.getElementById('status-dot').className = 'error';
+    log('log-error', 'Erro de conexão WS');
+  };
+
+  ws.onclose = () => {
+    document.getElementById('status-dot').className = '';
+    log('log-error', 'WS desconectado');
+  };
+}
+
+async function handleServerMsg(msg) {
+  switch (msg.type) {
+
+    case 'registered':
+      log('log-recv', `Registrado com ID ${msg.user_id}`);
+      document.getElementById('login-overlay').style.display = 'none';
+      break;
+
+    case 'user_list':
+      renderUserList(msg.users);
+      break;
+
+    case 'key_response':
+      // Passo 3 do handshake: recebemos a chave pública do peer
+      peerKey = RSA.pubKeyFromDto(msg.public_key);
+      log('log-recv', `Chave pública de ${msg.username} recebida — n=${peerKey.n}`);
+
+      document.getElementById('peerkey-display').innerHTML =
+        `<div class="label">n de ${msg.username}</div>${peerKey.n}<br>
+         <div class="label" style="margin-top:6px">e</div>${peerKey.e}`;
+
+      // Gera chave de sessão AES se ainda não temos para este peer
+      if (!sessionKeys.has(msg.username)) {
+        const sessionKey = CRYPTO.gerarChaveAes();
+        sessionKeys.set(msg.username, sessionKey);
+        log('log-crypto', `Chave AES-256 de sessão gerada para ${msg.username}: ${Hex.encode(sessionKey).slice(0,16)}...`);
+      }
+
+      // Habilita o input após handshake
+      document.getElementById('msg-input').disabled  = false;
+      document.getElementById('send-btn').disabled   = false;
+      document.getElementById('chat-header').innerHTML =
+        `Conversando com <strong>${msg.username}</strong> — E2EE ativo 🔒`;
+
+      addMsg(null, `Handshake com ${msg.username} concluído. Chaves trocadas.`);
+      break;
+
+    case 'incoming_message':
+      await receberMensagem(msg);
+      break;
+
+    case 'error':
+      log('log-error', `Servidor: ${msg.message}`);
+      break;
+  }
+}
+
+// ================================================================
+// CAMADA 6: Envio — cifra em camadas RSA → AES → HMAC
+// ================================================================
+
+async function enviarMensagem() {
+  const input = document.getElementById('msg-input');
+  const texto = input.value.trim();
+  if (!texto || !peerName || !peerKey) return;
+
+  input.value    = '';
+  input.disabled = true;
+
+  try {
+    const sessionKey = sessionKeys.get(peerName);
+    const plaintext  = Encoder.encode(texto);
+
+    // ── Passo A: cifra mensagem com AES-256-CBC ──────────────────
+    // Produz: IV(16) + ciphertext — exato mesmo formato do seu aes_encrypt_cbc
+    const encryptedPayload = await CRYPTO.aesEncrypt(plaintext, sessionKey);
+    log('log-crypto', `AES-CBC encrypt: ${encryptedPayload.length} bytes`);
+
+    // ── Passo B: Encrypt-then-MAC (Autenticação) ─────────────────
+    // HMAC-SHA256 do IV+ciphertext com a mesma chave AES
+    const mac = await CRYPTO.hmacSign(encryptedPayload, sessionKey);
+    log('log-crypto', `HMAC-SHA256: ${Hex.encode(mac).slice(0,16)}...`);
+
+    // ── Passo C: cifra a chave AES de sessão com RSA do peer ─────
+    // Cada byte da chave é cifrado individualmente — igual ao cifrar() do seu Rust
+    const encryptedSessionKeyNums = RSA.cifrarBytes(sessionKey, peerKey);
+    // Serializa como JSON de strings (BigInt não é JSON-safe por padrão)
+    const encryptedSessionKeyHex = JSON.stringify(encryptedSessionKeyNums.map(n => n.toString()));
+    log('log-send', `RSA cifrou chave de sessão (${encryptedSessionKeyNums.length} valores)`);
+
+    // ── Passo D: envia tudo para o servidor (que não entende nada) ─
+    ws.send(JSON.stringify({
+      type:                   'send_message',
+      to:                     peerName,
+      encrypted_session_key:  encryptedSessionKeyHex,
+      encrypted_payload:      Hex.encode(encryptedPayload),
+      mac:                    Hex.encode(mac),
+    }));
+
+    addMsg(myName, texto, true);
+  } finally {
+    input.disabled = false;
+    input.focus();
+  }
+}
+
+// ================================================================
+// CAMADA 7: Recebimento — decifra em ordem inversa
+// ================================================================
+
+async function receberMensagem(msg) {
+  try {
+    // ── Passo A: decifra chave AES com RSA privada local ─────────
+    const encryptedNums = JSON.parse(msg.encrypted_session_key).map(BigInt);
+    const sessionKeyBytes = RSA.decifrarBytes(encryptedNums, myKeys.privateKey);
+    log('log-recv', `RSA decifrou chave de sessão de ${msg.from}`);
+
+    // Guarda para esta conversa
+    if (!sessionKeys.has(msg.from)) {
+      sessionKeys.set(msg.from, sessionKeyBytes);
+    }
+
+    // ── Passo B: verifica HMAC antes de decifrar ─────────────────
+    // "Verify then Decrypt" — padrão correto de segurança
+    const payload = Hex.decode(msg.encrypted_payload);
+    const mac     = Hex.decode(msg.mac);
+    const macOk   = await CRYPTO.hmacVerify(payload, mac, sessionKeyBytes);
+
+    if (!macOk) {
+      log('log-error', `⚠ MAC inválido na mensagem de ${msg.from} — mensagem rejeitada`);
+      addMsg(null, `⚠ Mensagem de ${msg.from} rejeitada: autenticidade comprometida.`);
+      return;
+    }
+    log('log-recv', `HMAC OK ✓ mensagem de ${msg.from} autêntica`);
+
+    // ── Passo C: decifra com AES-256-CBC ─────────────────────────
+    // payload = IV(16) + ciphertext — mesmo formato do aes_decrypt_cbc do Rust
+    const plaintext = await CRYPTO.aesDecrypt(payload, sessionKeyBytes);
+    const texto     = Decoder.decode(plaintext);
+
+    addMsg(msg.from, texto, false);
+  } catch (e) {
+    log('log-error', `Erro ao decifrar mensagem de ${msg.from}: ${e.message}`);
+  }
+}
+
+// ================================================================
+// CAMADA 8: UI
+// ================================================================
+
+function renderUserList(users) {
+  const container = document.getElementById('user-list');
+  container.innerHTML = '';
+  users.filter(u => u !== myName).forEach(username => {
+    const div       = document.createElement('div');
+    div.className   = `user-item${username === peerName ? ' selected' : ''}`;
+    div.innerHTML   = `<span class="dot"></span>${username}`;
+    div.onclick     = () => selecionarPeer(username);
+    container.appendChild(div);
+  });
+}
+
+function selecionarPeer(username) {
+  peerName = username;
+  peerKey  = null;
+
+  // Desabilita input até handshake completar
+  document.getElementById('msg-input').disabled  = true;
+  document.getElementById('send-btn').disabled   = true;
+  document.getElementById('chat-header').innerHTML =
+    `Conectando com <strong>${username}</strong>...`;
+  document.getElementById('messages').innerHTML = '';
+  document.getElementById('peerkey-display').innerHTML =
+    '<div class="label">buscando chave...</div>';
+
+  log('log-send', `Solicitando chave pública de ${username}`);
+
+  // Pede a chave pública do peer ao servidor
+  ws.send(JSON.stringify({ type: 'get_key', target_username: username }));
+
+  // Atualiza seleção visual
+  document.querySelectorAll('.user-item').forEach(el => {
+    el.classList.toggle('selected', el.textContent.trim() === username);
+  });
+}
+
+// ── Event listeners ──────────────────────────────────────────────
+
+document.getElementById('send-btn').onclick = enviarMensagem;
+
+document.getElementById('msg-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    enviarMensagem();
+  }
+});
+
+document.getElementById('login-btn').onclick = () => {
+  const username = document.getElementById('login-username').value.trim();
+  if (!username) return;
+  conectar(username);
+};
+
+document.getElementById('login-username').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('login-btn').click();
+});
+
+// Preenche username da URL se vier como ?user=Alice
+const urlUser = new URLSearchParams(location.search).get('user');
+if (urlUser) document.getElementById('login-username').value = urlUser;
+</script>
+</body>
+</html>
